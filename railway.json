@@ -1,1 +1,32 @@
-{"$schema":"https://railway.app/railway.schema.json","build":{"builder":"NIXPACKS","buildCommand":"cd server && npm install"},"deploy":{"startCommand":"cd server && node index.js","healthcheckPath":"/health"}} 
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "node index.js"
+  }
+}
+```
+
+**Step 3.** Click **File** → **Save As**
+
+**Step 4.** Navigate to your Desktop → open the `realOrai-game` folder
+
+**Step 5.** Very important — in the **File name** box type:
+```
+railway.json
+```
+
+**Step 6.** In the **Save as type** dropdown — change it to **All Files** (not Text Documents)
+
+**Step 7.** Click **Save**
+
+**Step 8.** Go to Command Prompt and run:
+```
+cd "C:\Users\Yashas Katta\Desktop\realOrai-game"
+```
+```
+git add .
+git commit -m "add railway config"
+git push
