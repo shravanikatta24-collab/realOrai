@@ -14,8 +14,7 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
+      const res = await fetch('https://realorai-9ofc.onrender.com/api/admin/login', {        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password })
       });

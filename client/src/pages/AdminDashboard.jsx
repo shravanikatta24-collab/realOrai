@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import socket from '../socket';
 
-const SERVER = '';
-
+const SERVER = 'https://realorai-9ofc.onrender.com';
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const adminToken = sessionStorage.getItem('adminToken');
