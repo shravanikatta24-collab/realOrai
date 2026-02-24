@@ -379,10 +379,15 @@ export default function AdminDashboard() {
                           value={qForm.imageUrl}
                           onChange={e => setQForm(f => ({...f, imageUrl: e.target.value}))}
                         />
-                        {qForm.imageUrl && (
-                          <img src={qForm.imageUrl} alt="Preview" className="mt-2 rounded-lg max-h-32 object-cover" />
-                        )}
-                      </div>
+{qForm.imageUrl && (
+                  <img 
+                    src={qForm.imageUrl} 
+                    alt="Preview" 
+                    className="mt-2 rounded-lg max-h-32 object-cover w-full"
+                    onError={e => { e.target.src='https://placehold.co/600x300/0a0a1a/00f5ff?text=Invalid+URL'; }}
+                  />
+                )}
+                   </div>
                     )}
 
                     {/* Correct answer */}
