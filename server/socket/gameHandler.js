@@ -145,16 +145,45 @@ if (questionIndex !== room.currentQuestionIndex) {
       await room.save();
 
       // Send result to this player
-      socket.emit('player:answerResult', { correct, points, correctAnswer: question.correctAnswer });
+    socket.emit('player:answerResult', { correct, points, correctAnswer: question.correctAnswer });
 
-      // Update scoreboard for admin
-      if (room.adminSocketId) {
-        io.to(room.adminSocketId).emit('admin:scoreUpdate', {
-          players: room.players.map(p => ({ username: p.username, score: p.score }))
-        });
-      }
-    });
+    // Update scoreboard for admin
+    if (room.adminSocketId) {
+      io.to(room.adminSocketId).emit('admin:scoreUpdate', {
+        players: room.players.map(p => ({ username: p.username, score: p.score }))
+      });
+    }
 
+    // Check if all players have answered
+    const totalPlayers = room.players.length;
+    const answeredPlayers = room.players.filter(p => 
+      p.answers.find(a => a.questionIndex === questionIndex)
+    ).length;
+
+    if (answeredPlayers >= totalPlayers) {
+      // All players answered - clear timer and move to next question
+      if (activeTimers[roomCode]) clearTimeout(activeTimers[roomCode]);
+      
+      // Reveal correct answer
+      io.to(roomCode).emit('game:questionEnd', {
+        correctAnswer: question.correctAnswer,
+        nextIn: 3
+      });
+
+      // Update admin scoreboard
+      io.to(room.adminSocketId).emit('admin:scoreUpdate', {
+        players: room.players.map(p => ({ username: p.username, score: p.score }))
+      });
+
+      // Move to next question
+      setTimeout(async () => {
+        const updatedRoom = await Room.findOne({ roomCode });
+        if (updatedRoom && updatedRoom.gameStatus === 'active') {
+          const allQuestions = await Question.find({ _id: { $in: updatedRoom.questions } });
+          sendQuestion(io, roomCode, allQuestions, questionIndex + 1);
+        }
+      }, 3000);
+    }
     // ── Disconnect ──────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
       console.log(`Socket disconnected: ${socket.id}`);
