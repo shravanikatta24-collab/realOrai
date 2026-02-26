@@ -1,3 +1,4 @@
+// socket/gameHandler.js
 const Room = require('../models/Room');
 const Question = require('../models/Question');
 
@@ -41,21 +42,15 @@ module.exports = (io) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return callback?.({ error: 'Room not found' });
       if (room.gameStatus !== 'waiting') return callback?.({ error: 'Game already started' });
-
       const allQuestions = await Question.find();
       if (allQuestions.length < 1) return callback?.({ error: 'No questions in bank' });
-
       const shuffled = allQuestions.sort(() => Math.random() - 0.5);
       const selected = shuffled.slice(0, Math.min(20, shuffled.length));
-
       room.questions = selected.map(q => q._id);
       room.gameStatus = 'active';
       room.currentQuestionIndex = 0;
       await room.save();
-
-      // Cache questions for this room
       questionCache[roomCode] = selected;
-
       console.log(`Game started in room ${roomCode} with ${selected.length} questions`);
       sendQuestion(io, roomCode, selected, 0);
       callback?.({ success: true });
@@ -65,7 +60,6 @@ module.exports = (io) => {
       const room = await Room.findOne({ roomCode });
       if (!room) return callback({ error: 'Room not found' });
       if (room.gameStatus === 'ended') return callback({ error: 'Game has ended' });
-
       const existing = room.players.find(p => p.username.toLowerCase() === username.toLowerCase());
       if (existing) {
         existing.socketId = socket.id;
@@ -76,13 +70,11 @@ module.exports = (io) => {
         io.to(room.adminSocketId).emit('room:playerUpdate', { players: room.players });
         return callback({ success: true, reconnected: true });
       }
-
       room.players.push({ username, socketId: socket.id });
       await room.save();
       socket.join(roomCode);
       socket.data.username = username;
       socket.data.roomCode = roomCode;
-
       if (room.adminSocketId) {
         io.to(room.adminSocketId).emit('room:playerUpdate', { players: room.players });
       }
@@ -92,67 +84,59 @@ module.exports = (io) => {
 
     socket.on('player:answer', async ({ roomCode, questionIndex, answer, remainingSeconds }) => {
       try {
-        const room = await Room.findOne({ roomCode }).populate('questions');
+        const room = await Room.findOne({ roomCode });
         if (!room || room.gameStatus !== 'active') return;
         if (questionIndex !== room.currentQuestionIndex) return;
-
         const player = room.players.find(p => p.socketId === socket.id);
         if (!player) return;
-
         const alreadyAnswered = player.answers.find(a => a.questionIndex === questionIndex);
         if (alreadyAnswered) return;
-
-        const questions = questionCache[roomCode] || room.questions;
+        const questions = questionCache[roomCode];
+        if (!questions) return;
         const question = questions[questionIndex];
         if (!question) return;
-
         const correct = String(answer).trim() === String(question.correctAnswer).trim();
         const points = correct ? calcScore(remainingSeconds) : 0;
-
         player.answers.push({ questionIndex, answer, correct, points });
         player.score += points;
         await room.save();
 
         socket.emit('player:answerResult', { correct, points, correctAnswer: question.correctAnswer });
 
-        if (room.adminSocketId) {
-          io.to(room.adminSocketId).emit('admin:scoreUpdate', {
-            players: room.players.map(p => ({ username: p.username, score: p.score }))
+        // Get fresh room data for accurate cumulative scores
+        const freshRoom = await Room.findOne({ roomCode });
+
+        if (freshRoom.adminSocketId) {
+          io.to(freshRoom.adminSocketId).emit('admin:scoreUpdate', {
+            players: freshRoom.players.map(p => ({ username: p.username, score: p.score }))
           });
         }
 
-        // Check if ALL players answered
-        const updatedRoom = await Room.findOne({ roomCode });
-        const totalPlayers = updatedRoom.players.length;
-        const answeredCount = updatedRoom.players.filter(p =>
+        const totalPlayers = freshRoom.players.length;
+        const answeredCount = freshRoom.players.filter(p =>
           p.answers.some(a => a.questionIndex === questionIndex)
         ).length;
 
         console.log(`Room ${roomCode}: ${answeredCount}/${totalPlayers} answered Q${questionIndex}`);
 
         if (answeredCount >= totalPlayers) {
-          console.log(`All players answered Q${questionIndex} - moving to next`);
+          console.log(`All players answered Q${questionIndex} - advancing`);
           if (activeTimers[roomCode]) {
             clearTimeout(activeTimers[roomCode]);
             delete activeTimers[roomCode];
           }
-
           io.to(roomCode).emit('game:questionEnd', {
             correctAnswer: question.correctAnswer,
             nextIn: 3
           });
-
-          if (room.adminSocketId) {
-            io.to(room.adminSocketId).emit('admin:scoreUpdate', {
-              players: updatedRoom.players.map(p => ({ username: p.username, score: p.score }))
+          if (freshRoom.adminSocketId) {
+            io.to(freshRoom.adminSocketId).emit('admin:scoreUpdate', {
+              players: freshRoom.players.map(p => ({ username: p.username, score: p.score }))
             });
           }
-
           setTimeout(() => {
-            const cachedQuestions = questionCache[roomCode];
-            if (cachedQuestions) {
-              sendQuestion(io, roomCode, cachedQuestions, questionIndex + 1);
-            }
+            const cached = questionCache[roomCode];
+            if (cached) sendQuestion(io, roomCode, cached, questionIndex + 1);
           }, 3000);
         }
       } catch (err) {
@@ -171,12 +155,9 @@ async function sendQuestion(io, roomCode, questions, index) {
     await endGame(io, roomCode);
     return;
   }
-
   const question = questions[index];
   const QUESTION_DURATION = 20;
-
   await Room.findOneAndUpdate({ roomCode }, { currentQuestionIndex: index });
-
   const questionPayload = {
     index,
     total: questions.length,
@@ -185,22 +166,18 @@ async function sendQuestion(io, roomCode, questions, index) {
     imageUrl: question.imageUrl,
     duration: QUESTION_DURATION
   };
-
   io.to(roomCode).emit('game:question', questionPayload);
   console.log(`Room ${roomCode}: Sending Q${index + 1}/${questions.length}`);
-
   if (activeTimers[roomCode]) {
     clearTimeout(activeTimers[roomCode]);
     delete activeTimers[roomCode];
   }
-
   activeTimers[roomCode] = setTimeout(async () => {
     try {
       console.log(`Timer expired for Q${index} in room ${roomCode}`);
-      const room = await Room.findOne({ roomCode }).populate('questions');
+      const room = await Room.findOne({ roomCode });
       if (!room || room.gameStatus !== 'active') return;
       if (room.currentQuestionIndex !== index) return;
-
       for (const player of room.players) {
         const answered = player.answers.find(a => a.questionIndex === index);
         if (!answered) {
@@ -208,23 +185,19 @@ async function sendQuestion(io, roomCode, questions, index) {
         }
       }
       await room.save();
-
+      const freshRoom = await Room.findOne({ roomCode });
       io.to(roomCode).emit('game:questionEnd', {
         correctAnswer: question.correctAnswer,
         nextIn: 3
       });
-
-      const adminRoom = await Room.findOne({ roomCode });
-      if (adminRoom?.adminSocketId) {
-        io.to(adminRoom.adminSocketId).emit('admin:scoreUpdate', {
-          players: adminRoom.players.map(p => ({ username: p.username, score: p.score }))
+      if (freshRoom.adminSocketId) {
+        io.to(freshRoom.adminSocketId).emit('admin:scoreUpdate', {
+          players: freshRoom.players.map(p => ({ username: p.username, score: p.score }))
         });
       }
-
       setTimeout(() => {
         sendQuestion(io, roomCode, questions, index + 1);
       }, 3000);
-
     } catch (err) {
       console.error('Timer error:', err);
     }
@@ -235,12 +208,9 @@ async function endGame(io, roomCode) {
   try {
     const room = await Room.findOne({ roomCode });
     if (!room) return;
-
     room.gameStatus = 'ended';
     await room.save();
-
     const sorted = [...room.players].sort((a, b) => b.score - a.score);
-
     for (let i = 0; i < sorted.length; i++) {
       const player = sorted[i];
       const playerSocket = io.sockets.sockets.get(player.socketId);
@@ -248,11 +218,12 @@ async function endGame(io, roomCode) {
         playerSocket.emit('game:ended', { score: player.score, rank: i + 1, total: sorted.length });
       }
     }
-
     if (room.adminSocketId) {
       io.to(room.adminSocketId).emit('admin:gameEnded', { players: sorted });
+      io.to(room.adminSocketId).emit('admin:scoreUpdate', {
+        players: sorted.map(p => ({ username: p.username, score: p.score }))
+      });
     }
-
     delete activeTimers[roomCode];
     delete questionCache[roomCode];
     console.log(`Game ended in room ${roomCode}`);
@@ -260,13 +231,3 @@ async function endGame(io, roomCode) {
     console.error('End game error:', err);
   }
 }
-```
-
-**Step 4.** Save the file (Ctrl + S)
-
-**Step 5.** Go to Command Prompt and run:
-```
-cd "C:\Users\Yashas Katta\Desktop\realOrai-game"
-git add .
-git commit -m "rewrite game handler fix stuck issue"
-git push
