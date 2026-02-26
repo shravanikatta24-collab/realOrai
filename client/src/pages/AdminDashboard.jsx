@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import socket from '../socket';
@@ -259,9 +259,29 @@ export default function AdminDashboard() {
 
           {/* Right: Live scoreboard */}
           <div>
-            <p className="text-white/30 text-xs font-display tracking-widest mb-3">
-              LIVE SCOREBOARD {gameEnded && <span className="text-yellow-400">— GAME ENDED</span>}
-            </p>
+           <div className="flex items-center justify-between mb-3">
+  <p className="text-white/30 text-xs font-display tracking-widest">
+    LIVE SCOREBOARD {gameEnded && <span className="text-yellow-400">— GAME ENDED</span>}
+  </p>
+  {gameEnded && (
+    <button
+      onClick={() => {
+        const rows = scores.map((p, i) => `${i+1}. ${p.username} - ${p.score} pts`).join('\n');
+        const text = `REAL OR AI - FINAL SCOREBOARD\n${'='.repeat(30)}\n${rows}\n${'='.repeat(30)}`;
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'scoreboard.txt';
+        a.click();
+        URL.revokeObjectURL(url);
+      }}
+      className="btn-cyan rounded-lg py-1.5 px-4 font-display font-bold text-xs tracking-wider"
+    >
+      💾 SAVE
+    </button>
+  )}
+</div>
             <div className="glass p-4 space-y-2 max-h-[600px] overflow-y-auto">
               {scores.length === 0 ? (
                 <p className="text-white/20 text-sm text-center py-8">No scores yet</p>
