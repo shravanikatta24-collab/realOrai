@@ -121,7 +121,11 @@ module.exports = (io) => {
     socket.on('player:answer', async ({ roomCode, questionIndex, answer, remainingSeconds }) => {
       const room = await Room.findOne({ roomCode }).populate('questions');
       if (!room || room.gameStatus !== 'active') return;
-      if (questionIndex !== room.currentQuestionIndex) return; // stale answer
+       // stale answer
+if (questionIndex !== room.currentQuestionIndex) {
+  console.log(`Stale answer rejected: got ${questionIndex}, expected ${room.currentQuestionIndex}`);
+  return;
+}
 
       const player = room.players.find(p => p.socketId === socket.id);
       if (!player) return;
@@ -133,7 +137,7 @@ module.exports = (io) => {
       const question = room.questions[questionIndex];
       if (!question) return;
 
-      const correct = answer === question.correctAnswer;
+      const correct = String(answer).trim() === String(question.correctAnswer).trim();
       const points = correct ? calcScore(remainingSeconds) : 0;
 
       player.answers.push({ questionIndex, answer, correct, points });
